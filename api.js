@@ -143,24 +143,6 @@ app.post('/api/auth/logout', async (req, res) => {
   }
 });
 
-// 3. LẤY THÔNG TIN PROFILE
-app.get('/api/users/:userId', async (req, res) => {
-  const { userId } = req.params;
-  try {
-    const query = `SELECT user_id, full_name, phone_number, email FROM demo_app_users WHERE user_id = $1;`;
-    const result = await pool.query(query, [userId]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Get profile error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
-
 // 4. CẬP NHẬT PROFILE
 app.put('/api/users/update', async (req, res) => {
   const { userId, fullName, phoneNumber, email } = req.body;
@@ -260,12 +242,6 @@ app.post('/api/cards/apply', async (req, res) => {
   }
 });
 
-// Khởi động Server trên cổng 3000 (hoặc cổng bạn cấu hình sau Nginx reverse proxy)
-const PORT = process.env.PORT || 6967;
-app.listen(PORT, () => {
-  console.log(`🚀 AKA Digital UAT Server running on port ${PORT}`);
-});
-
 // API NẠP TIỀN (Cập nhật balance của user và ghi log vào demo_app_deposits)
 app.post('/api/wallet/deposit', async (req, res) => {
   const { userId, amount } = req.body;
@@ -338,4 +314,13 @@ app.get('/api/users/:userId', async (req, res) => {
     console.error('Get profile error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
+});
+
+
+
+
+// Khởi động Server trên cổng 3000 (hoặc cổng bạn cấu hình sau Nginx reverse proxy)
+const PORT = process.env.PORT || 6967;
+app.listen(PORT, () => {
+  console.log(`🚀 AKA Digital UAT Server running on port ${PORT}`);
 });
