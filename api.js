@@ -170,20 +170,52 @@ app.put('/api/users/update', async (req, res) => {
 app.post('/api/transactions', async (req, res) => {
   const { userId, transactionType, amount, recipientAccount, note } = req.body;
   
+  if (!userId || !amount || amount <= 0) {
+    return res.status(400).json({ success: false, message: 'Invalid user or amount' });
+  }
+
+  const client = await pool.connect();
   try {
-    // Bước A: Kiểm tra xem user đã có giao dịch thành công nào trước đó chưa bằng COUNT(*)
+    await client.query('BEGIN'); // 1. Bắt đầu transaction
+
+    // 2. Kiểm tra số dư hiện tại của user và khóa dòng (FOR UPDATE) để tránh xung đột
+    const userQuery = `SELECT balance FROM demo_app_users WHERE user_id = $1 FOR UPDATE;`;
+    const userResult = await client.query(userQuery, [userId]);
+
+    if (userResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const currentBalance = parseFloat(userResult.rows[0].balance || 0);
+
+    // 3. Kiểm tra xem tài khoản có đủ tiền để chuyển khoản không
+    if (currentBalance < amount) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'Insufficient balance (Số dư không đủ)' });
+    }
+
+    // 4. Trừ tiền trực tiếp vào balance của user
+    const updateBalanceQuery = `
+      UPDATE demo_app_users 
+      SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $2
+      RETURNING balance;
+    `;
+    const updateResult = await client.query(updateBalanceQuery, [amount, userId]);
+    const newBalance = updateResult.rows[0].balance;
+
+    // 5. Kiểm tra xem user đã có giao dịch thành công nào trước đó chưa (isFirstTransaction)
     const countQuery = `
       SELECT COUNT(*) AS total 
       FROM demo_app_transactions 
       WHERE user_id = $1 AND status = 'SUCCESS';
     `;
-    const countResult = await pool.query(countQuery, [userId]);
+    const countResult = await client.query(countQuery, [userId]);
     const successfulTransactionsCount = parseInt(countResult.rows[0].total, 10);
-
-    // Nếu count == 0 nghĩa đây là giao dịch đầu tiên (isFirstTransaction = true)
     const isFirstTransaction = successfulTransactionsCount === 0;
 
-    // Bước B: Lưu giao dịch mới vào DB
+    // 6. Lưu lịch sử giao dịch vào bảng demo_app_transactions
     const transactionId = 'TXN_' + Date.now();
     const insertQuery = `
       INSERT INTO demo_app_transactions 
@@ -201,18 +233,24 @@ app.post('/api/transactions', async (req, res) => {
       isFirstTransaction
     ];
 
-    const insertResult = await pool.query(insertQuery, values);
+    const insertResult = await client.query(insertQuery, values);
 
-    // Trả kết quả về cho React Native để app phân nhánh bắn event AppsFlyer / CleverTap
+    await client.query('COMMIT'); // 7. Xác nhận hoàn tất transaction thành công
+
+    // Trả kết quả về cho React Native
     res.json({
       success: true,
       transactionId: transactionId,
       isFirstTransaction: isFirstTransaction,
+      newBalance: newBalance, // Trả về số dư mới để app cập nhật ngay lập tức nếu cần
       data: insertResult.rows[0],
     });
   } catch (error) {
+    await client.query('ROLLBACK'); // Hoàn tác nếu có lỗi xảy ra
     console.error('Create transaction error:', error);
     res.status(500).json({ success: false, message: 'Server error processing transaction' });
+  } finally {
+    client.release();
   }
 });
 
