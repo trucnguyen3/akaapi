@@ -9,7 +9,11 @@ app.use(cors());
 
 // Cấu hình kết nối PostgreSQL (Thay đổi thông số cho khớp với DB của bạn)
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgres://username:password@localhost:5432/your_database',
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  port: 5432,
 });
 
 // 1. ĐĂNG KÝ USER (Lưu vào `demo_app_users`)
