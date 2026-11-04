@@ -265,3 +265,56 @@ const PORT = process.env.PORT || 6967;
 app.listen(PORT, () => {
   console.log(`🚀 AKA Digital UAT Server running on port ${PORT}`);
 });
+
+// API NẠP TIỀN (Cập nhật balance của user và ghi log vào demo_app_deposits)
+app.post('/api/wallet/deposit', async (req, res) => {
+  const { userId, amount } = req.body;
+
+  if (!userId || !amount || amount <= 0) {
+    return res.status(400).json({ success: false, message: 'Invalid user or amount' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN'); // Dùng Transaction để đảm bảo tính toàn vẹn dữ liệu
+
+    // 1. Cộng tiền vào balance của user trong demo_app_users
+    const updateBalanceQuery = `
+      UPDATE demo_app_users 
+      SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $2
+      RETURNING balance, full_name, phone_number;
+    `;
+    const userResult = await client.query(updateBalanceQuery, [amount, userId]);
+
+    if (userResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const updatedUser = userResult.rows[0];
+
+    // 2. Ghi lịch sử vào bảng demo_app_deposits
+    const depositId = 'DEP_' + Date.now();
+    const insertDepositQuery = `
+      INSERT INTO demo_app_deposits (deposit_id, user_id, amount, status)
+      VALUES ($1, $2, $3, 'SUCCESS')
+      RETURNING *;
+    `;
+    const depositResult = await client.query(insertDepositQuery, [depositId, userId, amount]);
+
+    await client.query('COMMIT'); // Xác nhận lưu transaction
+
+    res.json({
+      success: true,
+      message: 'Deposit successful',
+      depositId: depositId,
+      newBalance: updatedUser.balance,
+      data: depositResult.rows[0],
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Deposit error:', error);
+    res.status(500).json({ success: false, message: 'Server error processing deposit' });
+  }
+});
