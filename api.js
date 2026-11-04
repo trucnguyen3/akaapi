@@ -7,8 +7,6 @@ app.use(express.json());
 app.use(cors());
 
 // Cấu hình kết nối PostgreSQL (Thay đổi thông số cho khớp với DB của bạn)
-const { Pool } = require('pg');
-
 const pool = new Pool({
   user: 'postgres',          // Thay bằng username PostgreSQL của bạn (VD: postgres)
   password: 'lmaoez', // Thay bằng mật khẩu thật của database
