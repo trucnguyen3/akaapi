@@ -7,8 +7,14 @@ app.use(express.json());
 app.use(cors());
 
 // Cấu hình kết nối PostgreSQL (Thay đổi thông số cho khớp với DB của bạn)
+const { Pool } = require('pg');
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgres://username:password@localhost:5432/your_database',
+  user: 'postgres',          // Thay bằng username PostgreSQL của bạn (VD: postgres)
+  password: 'lmaoez', // Thay bằng mật khẩu thật của database
+  host: 'localhost',
+  database: 'postgres', // Thay bằng tên database bạn đã tạo
+  port: 5432,
 });
 
 // 1. ĐĂNG KÝ USER (Lưu vào `demo_app_users`)
