@@ -9,7 +9,7 @@ app.use(cors());
 // Cấu hình kết nối PostgreSQL (Thay đổi thông số cho khớp với DB của bạn)
 const pool = new Pool({
   user: 'postgres',          // Thay bằng username PostgreSQL của bạn (VD: postgres)
-  password: 'lmaoez', // Thay bằng mật khẩu thật của database
+  password: 'lmaoez1234', // Thay bằng mật khẩu thật của database
   host: 'localhost',
   database: 'postgres', // Thay bằng tên database bạn đã tạo
   port: 5432,
