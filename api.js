@@ -293,26 +293,57 @@ app.post('/api/transactions', async (req, res) => {
 // 6. ĐĂNG KÝ PHÁT HÀNH THẺ (Bảng `demo_app_card_applications`)
 app.post('/api/cards/apply', async (req, res) => {
   const { userId, cardType, cardCategory, deliveryAddress, monthlyIncome } = req.body;
+
+  if (!userId || !cardType) {
+    return res.status(400).json({ success: false, message: 'Invalid user or card info' });
+  }
+
+  const client = await pool.connect();
   try {
-    const applicationId = 'CARD_' + Date.now();
-    const query = `
-      INSERT INTO demo_app_card_applications 
-      (application_id, user_id, card_type, card_category, delivery_address, monthly_income, status)
-      VALUES ($1, $2, $3, $4, $5, $6, 'PENDING')
+    await client.query('BEGIN');
+
+    // 1. Tạo số thẻ ngẫu nhiên và ngày hết hạn giả lập
+    const cardNumber = '4532 **** **** ' + Math.floor(1000 + Math.random() * 9000);
+    const expiryDate = '12/28';
+    const cardId = 'CARD_' + Date.now();
+
+    // 2. Lưu vào bảng demo_app_cards
+    const insertCardQuery = `
+      INSERT INTO demo_app_cards 
+      (card_id, user_id, card_type, card_category, card_number, expiry_date, delivery_address, monthly_income, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ACTIVE')
       RETURNING *;
     `;
-    const values = [applicationId, userId, cardType, cardCategory, deliveryAddress, monthlyIncome];
-    const result = await pool.query(query, values);
+    const cardResult = await client.query(insertCardQuery, [
+      cardId,
+      userId,
+      cardType,
+      cardCategory || 'Credit Card',
+      cardNumber,
+      expiryDate,
+      deliveryAddress || '',
+      monthlyIncome || 0
+    ]);
+
+    // 3. Lấy NID/CCCD của user để gán objectId cho CleverTap
+    const userQuery = `SELECT id_card_number FROM demo_app_users WHERE user_id = $1;`;
+    const userResult = await client.query(userQuery, [userId]);
+    const userNidNumber = userResult.rows[0]?.id_card_number;
+
+    await client.query('COMMIT');
 
     res.json({
       success: true,
-      message: 'Card application submitted successfully',
-      applicationId: applicationId,
-      data: result.rows[0],
+      message: 'Card applied successfully',
+      card: cardResult.rows[0]
     });
+
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Card apply error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: 'Server error applying for card' });
+  } finally {
+    client.release();
   }
 });
 
