@@ -317,7 +317,7 @@ app.post('/api/cards/apply', async (req, res) => {
     const cardResult = await client.query(insertCardQuery, [
       cardId,
       userId,
-      cardType === 'premium' ? 'Cake Black (Premium)' : 'Cake Pink (Standard)',
+      cardType === 'CR Golden' ? 'AKA CR (Premium)' : 'AKA CR (Standard)',
       cardCategory || 'Credit Card',
       cardNumber,
       expiryDate,
