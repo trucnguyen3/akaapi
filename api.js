@@ -170,16 +170,18 @@ app.put('/api/users/update', async (req, res) => {
 app.post('/api/transactions', async (req, res) => {
   const { userId, transactionType, amount, recipientAccount, note } = req.body;
   
-  if (!userId || !amount || amount <= 0) {
-    return res.status(400).json({ success: false, message: 'Invalid user or amount' });
+  // Kiểm tra hợp lệ dữ liệu đầu vào
+  const validTypes = ['transfer', 'payment', 'qrcode'];
+  if (!userId || !amount || amount <= 0 || !validTypes.includes(transactionType)) {
+    return res.status(400).json({ success: false, message: 'Invalid user, amount or transaction type' });
   }
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN'); // 1. Bắt đầu transaction
 
-    // 2. Kiểm tra số dư hiện tại của user và khóa dòng (FOR UPDATE) để tránh xung đột
-    const userQuery = `SELECT balance FROM demo_app_users WHERE user_id = $1 FOR UPDATE;`;
+    // 2. Lấy balance VÀ id_card_number của user, đồng thời khóa dòng (FOR UPDATE)
+    const userQuery = `SELECT balance, id_card_number FROM demo_app_users WHERE user_id = $1 FOR UPDATE;`;
     const userResult = await client.query(userQuery, [userId]);
 
     if (userResult.rows.length === 0) {
@@ -188,8 +190,9 @@ app.post('/api/transactions', async (req, res) => {
     }
 
     const currentBalance = parseFloat(userResult.rows[0].balance || 0);
+    const userNidNumber = userResult.rows[0].id_card_number; // Lấy số NID/CCCD của user
 
-    // 3. Kiểm tra xem tài khoản có đủ tiền để chuyển khoản không
+    // 3. Kiểm tra xem tài khoản có đủ tiền không
     if (currentBalance < amount) {
       await client.query('ROLLBACK');
       return res.status(400).json({ success: false, message: 'Insufficient balance (Số dư không đủ)' });
@@ -205,7 +208,7 @@ app.post('/api/transactions', async (req, res) => {
     const updateResult = await client.query(updateBalanceQuery, [amount, userId]);
     const newBalance = updateResult.rows[0].balance;
 
-    // 5. Kiểm tra xem user đã có giao dịch thành công nào trước đó chưa (isFirstTransaction)
+    // 5. Kiểm tra xem user đã có giao dịch thành công nào trước đó chưa
     const countQuery = `
       SELECT COUNT(*) AS total 
       FROM demo_app_transactions 
@@ -237,22 +240,22 @@ app.post('/api/transactions', async (req, res) => {
 
     await client.query('COMMIT'); // 7. Xác nhận hoàn tất transaction thành công
 
-    // 8. (Tùy chọn) Nếu là giao dịch đầu tiên, gọi CleverTap Server API để track event
+    // 8. Nếu là giao dịch đầu tiên, gọi CleverTap Server API dùng NID làm objectId
     if (isFirstTransaction) {
       try {
         const axios = require('axios');
         await axios.post('https://sg1.api.clevertap.com/1/upload', {
           "d": [
             {
-              "objectId": userId,
+              "identity": userNidNumber, // Dùng NID làm objectId, fallback về userId nếu NID trống
               "type": "event",
-              "evtName": "First Transaction",
+              "evtName": "first_transaction_success",
+              "ts": Math.floor(Date.now() / 1000), // Chuẩn thời gian UNIX epoch của CleverTap
               "evtData": {
                 "Transaction Type": transactionType,
                 "Transaction ID": transactionId,
                 "Amount": amount,
-                "Recipient": recipientAccount,
-                "Timestamp": Math.floor(Date.now() / 1000)
+                "Recipient": recipientAccount
               }
             }
           ]
@@ -263,9 +266,8 @@ app.post('/api/transactions', async (req, res) => {
             'Content-Type': 'application/json'
           }
         });
-        console.log(`[CleverTap] Tracked 1st transaction successfully for user: ${userId}`);
+        console.log(`[CleverTap] Tracked 1st transaction successfully for NID: ${userNidNumber}`);
       } catch (ctError) {
-        // Log lỗi gửi CleverTap nhưng không làm fail request giao dịch của user
         console.error('[CleverTap API Error]:', ctError.response?.data || ctError.message);
       }
     }
@@ -274,12 +276,13 @@ app.post('/api/transactions', async (req, res) => {
     res.json({
       success: true,
       transactionId: transactionId,
+      transactionType: transactionType,
       isFirstTransaction: isFirstTransaction,
       newBalance: newBalance,
       data: insertResult.rows[0],
     });
   } catch (error) {
-    await client.query('ROLLBACK'); // Hoàn tác nếu có lỗi xảy ra
+    await client.query('ROLLBACK');
     console.error('Create transaction error:', error);
     res.status(500).json({ success: false, message: 'Server error processing transaction' });
   } finally {
