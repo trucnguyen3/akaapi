@@ -237,12 +237,45 @@ app.post('/api/transactions', async (req, res) => {
 
     await client.query('COMMIT'); // 7. Xác nhận hoàn tất transaction thành công
 
+    // 8. (Tùy chọn) Nếu là giao dịch đầu tiên, gọi CleverTap Server API để track event
+    if (isFirstTransaction) {
+      try {
+        const axios = require('axios');
+        await axios.post('https://sg1.api.clevertap.com/1/upload', {
+          "d": [
+            {
+              "objectId": userId,
+              "type": "event",
+              "evtName": "First Transaction",
+              "evtData": {
+                "Transaction Type": transactionType,
+                "Transaction ID": transactionId,
+                "Amount": amount,
+                "Recipient": recipientAccount,
+                "Timestamp": Math.floor(Date.now() / 1000)
+              }
+            }
+          ]
+        }, {
+          headers: {
+            'X-CleverTap-Account-Id': process.env.CLEVERTAP_ACCOUNT_ID,
+            'X-CleverTap-Passcode': process.env.CLEVERTAP_PASSCODE,
+            'Content-Type': 'application/json'
+          }
+        });
+        console.log(`[CleverTap] Tracked 1st transaction successfully for user: ${userId}`);
+      } catch (ctError) {
+        // Log lỗi gửi CleverTap nhưng không làm fail request giao dịch của user
+        console.error('[CleverTap API Error]:', ctError.response?.data || ctError.message);
+      }
+    }
+
     // Trả kết quả về cho React Native
     res.json({
       success: true,
       transactionId: transactionId,
       isFirstTransaction: isFirstTransaction,
-      newBalance: newBalance, // Trả về số dư mới để app cập nhật ngay lập tức nếu cần
+      newBalance: newBalance,
       data: insertResult.rows[0],
     });
   } catch (error) {
