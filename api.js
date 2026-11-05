@@ -409,18 +409,14 @@ app.post('/api/wallet/deposit', async (req, res) => {
 app.get('/api/users/:userId', async (req, res) => {
   const { userId } = req.params;
   try {
-    const query = `
-      SELECT user_id, full_name, phone_number, email, balance 
-      FROM demo_app_users 
-      WHERE user_id = $1;
-    `;
+    const query = `SELECT user_id, full_name, phone_number, email, id_card_number, balance FROM demo_app_users WHERE user_id = $1 OR phone_number = $1;`;
     const result = await pool.query(query, [userId]);
-
+    
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    res.json(result.rows[0]); // Trả về object chứa cả balance
+    res.json(result.rows[0]); // Trả về object chứa id_card_number
   } catch (error) {
     console.error('Get profile error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
