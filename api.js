@@ -295,14 +295,14 @@ app.post('/api/cards/apply', async (req, res) => {
   const { userId, cardType, cardCategory, deliveryAddress, monthlyIncome } = req.body;
 
   if (!userId || !cardType) {
-    return res.status(400).json({ success: false, message: 'Invalid user or card info' });
+    return res.status(400).json({ success: false, message: 'Thiếu thông tin user hoặc loại thẻ' });
   }
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // 1. Tạo số thẻ ngẫu nhiên và ngày hết hạn giả lập
+    // 1. Tạo thông tin thẻ giả lập
     const cardNumber = '4532 **** **** ' + Math.floor(1000 + Math.random() * 9000);
     const expiryDate = '12/28';
     const cardId = 'CARD_' + Date.now();
@@ -310,40 +310,46 @@ app.post('/api/cards/apply', async (req, res) => {
     // 2. Lưu vào bảng demo_app_cards
     const insertCardQuery = `
       INSERT INTO demo_app_cards 
-      (card_id, user_id, card_type, card_category, card_number, expiry_date, delivery_address, monthly_income, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ACTIVE')
+      (card_id, user_id, card_type, card_category, card_number, expiry_date, status)
+      VALUES ($1, $2, $3, $4, $5, $6, 'ACTIVE')
       RETURNING *;
     `;
     const cardResult = await client.query(insertCardQuery, [
       cardId,
       userId,
-      cardType,
+      cardType === 'premium' ? 'Cake Black (Premium)' : 'Cake Pink (Standard)',
       cardCategory || 'Credit Card',
       cardNumber,
       expiryDate,
-      deliveryAddress || '',
-      monthlyIncome || 0
     ]);
-
-    // 3. Lấy NID/CCCD của user để gán objectId cho CleverTap
-    const userQuery = `SELECT id_card_number FROM demo_app_users WHERE user_id = $1;`;
-    const userResult = await client.query(userQuery, [userId]);
-    const userNidNumber = userResult.rows[0]?.id_card_number;
 
     await client.query('COMMIT');
 
     res.json({
       success: true,
-      message: 'Card applied successfully',
+      message: 'Phát hành thẻ thành công',
       card: cardResult.rows[0]
     });
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Card apply error:', error);
-    res.status(500).json({ success: false, message: 'Server error applying for card' });
+    console.error('Lỗi lưu thẻ:', error);
+    res.status(500).json({ success: false, message: 'Lỗi server khi lưu thẻ' });
   } finally {
     client.release();
+  }
+});
+
+// Endpoint lấy danh sách thẻ của user để hiển thị ngoài Home
+app.get('/api/cards/user/:userId', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const query = `SELECT * FROM demo_app_cards WHERE user_id = $1 ORDER BY created_at DESC;`;
+    const result = await pool.query(query, [userId]);
+    res.json({ success: true, cards: result.rows });
+  } catch (error) {
+    console.error('Lỗi lấy danh sách thẻ:', error);
+    res.status(500).json({ success: false, message: 'Lỗi server' });
   }
 });
 
